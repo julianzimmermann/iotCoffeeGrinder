@@ -1,0 +1,11 @@
+#define BLYNK_AUTH_KEY "HASH"
+#define BLYNK_HOST "BLYNKSERVERADDRESS"
+#define BLYNK_PORT 8080
+
+#define WIFI_SSID "SSID"
+#define WIFI_PASS "PASS"
+#define WIFI_HOSTNAME "HOSTNAME"
+
+#define IS_OTA 1
+#define OTA_HOST "CoffeeGrinder"
+#define OTA_PASS "updateme"
