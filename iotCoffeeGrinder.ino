@@ -6,7 +6,9 @@
 
 bool isDebug = IS_DEBUG;
 #if (IS_DEBUG == true)
+
 #include "Dump.h"
+
 #endif
 
 //Blynk
@@ -38,31 +40,40 @@ int isTimerShortButtonPressed = 0;
 int isTimerLongButtonPressed = 0;
 
 unsigned long machineStartTime = 0;
+unsigned long relayTriggeredTime = 0;
+bool isRelayTriggered = false;
+
+//Wifi Vars
+bool isInWifiConnectingMode = false;
+int wifiConnectingCount = 0;
+unsigned long wifiStartedConnectingTime = 0;
+
+bool isSetupComplete = false;
 
 BLYNK_CONNECTED() {
     Blynk.syncAll();
 }
 
 BLYNK_WRITE(timerShortPin){
-    timerShortValue = param.asInt() * 1000;
+        timerShortValue = param.asInt() * 1000;
         dump("read timerShortPin: ", false);
         dump(timerShortValue);
 }
 
 BLYNK_WRITE(timerShortButtonPin){
-    isTimerShortButtonPressed = param.asInt();
-    dump("read timerShortButtonPin: ", false);
-    dump(isTimerShortButtonPressed);
+        isTimerShortButtonPressed = param.asInt();
+        dump("read timerShortButtonPin: ", false);
+        dump(isTimerShortButtonPressed);
 }
 
 BLYNK_WRITE(timerLongPin){
-    timerLongValue = param.asInt() * 1000;
+        timerLongValue = param.asInt() * 1000;
         dump("read timerLongPin: ", false);
         dump(timerLongValue);
 }
 
 BLYNK_WRITE(timerLongButtonPin){
-    isTimerLongButtonPressed = param.asInt();
+        isTimerLongButtonPressed = param.asInt();
         dump("read timerLongButtonPin: ", false);
         dump(isTimerLongButtonPressed);
 }
@@ -96,8 +107,7 @@ void turnLedOn() {
     if (isLedOn() == false) {
         dump("yes");
         digitalWrite(LED_PIN, HIGH);
-    }
-    else{
+    } else {
         dump("no");
     }
 }
@@ -107,11 +117,10 @@ void turnLedOn() {
  */
 void turnLedOff() {
     dump("turn LED off ", false);
-    if (isLedOn()) {
+    if (isLedOn() == true) {
         dump("yes");
         digitalWrite(LED_PIN, LOW);
-    }
-    else{
+    } else {
         dump("no");
     }
 }
@@ -136,43 +145,78 @@ void toggleLed() {
     }
 }
 
+bool isMillButtonPressed() {
+    return isTimerShortButtonPressed == 1 || isTimerLongButtonPressed == 1;
+}
+
 /**
  * @param int time
  * @return void
  */
 void triggerRelay(int time) {
-    Blynk.virtualWrite(V30, time);
-    toggleLed();
-    delay(500);
-    toggleLed();
-    Blynk.virtualWrite(timerLongButtonPin, 0);
-    Blynk.virtualWrite(timerShortButtonPin, 0);
+    dump("Relay ", false);
+    if (isMillButtonPressed() == false) {
+        dump("no button pressed");
+        return;
+    }
+
+    if (relayTriggeredTime == 0) {
+        dump("turned ON");
+        relayTriggeredTime = millis();
+        isRelayTriggered = true;
+        digitalWrite(RELAY_PIN, HIGH);
+    }
+
+    if (millis() - relayTriggeredTime >= time) {
+        dump("turned OFF");
+        relayTriggeredTime = 0;
+        isRelayTriggered = false;
+        digitalWrite(RELAY_PIN, LOW);
+        Blynk.virtualWrite(timerLongButtonPin, 0);
+        Blynk.virtualWrite(timerShortButtonPin, 0);
+    }
 }
+
+void resetWifiConnectingStats() {
+    wifiConnectingCount = 0;
+    wifiStartedConnectingTime = 0;
+    isInWifiConnectingMode = false;
+}
+
+bool isOfflineModeForced() {
+    return millis() - machineStartTime >= 60000 && isWifiConnected() == false;
+}
+
 
 /**
  * @return void
  */
 void connectWifi() {
-    WiFi.hostname(wifiHostname);
-    unsigned long startTime = millis();
-    while (isWifiConnected() == false) {
-        dump("Wifi not connected");
-        turnLedOff();
+    dump("TEST");
+    if (isWifiConnected() == true) {
+        resetWifiConnectingStats();
+        return;
+    }
+    dump("Wifi not connected");
+    if (isInWifiConnectingMode == false && wifiStartedConnectingTime == 0) {
+        wifiStartedConnectingTime = millis();
+        isInWifiConnectingMode = true;
+    }
+
+    wifiConnectingCount++;
+
+    if (millis() - wifiStartedConnectingTime >= 5000) {
+        dump("Start connecting to wifi with ssid ", false);
+        dump(wifiSsid);
+        WiFi.hostname(wifiHostname);
         WiFi.disconnect();
         WiFi.begin(wifiSsid, wifiPass);
-        int count = 1;
-        while (isWifiConnected() == false) {
-            delay(500);
-            dump("Waiting for reconnect ", false);
-            dump(count);
-            toggleLed();
-            if (count == 5){
-                delay(2000);
-                return;
-            }
-            count++;
-        }
-    };
+        resetWifiConnectingStats();
+    }
+
+    if (wifiConnectingCount % 500 == 0) {
+        toggleLed();
+    }
 }
 
 /**
@@ -182,14 +226,14 @@ void connectBlynk() {
     while (isBlynkConnected() == false) {
         dump("Blynk offline");
         turnLedOff();
-        Blynk.connect(200);
+        Blynk.connect(3000);
         int count = 1;
         while (isBlynkConnected() == false) {
             dump("Waiting for reconnect to blynk", false);
             dump(count);
             delay(300);
             toggleLed();
-            if (count == 15){
+            if (count == 15) {
                 return;
             }
             count++;
@@ -197,12 +241,37 @@ void connectBlynk() {
     };
 }
 
+void handleOtaStuff() {
+    ArduinoOTA.handle();
+    ArduinoOTA.onStart([]() {
+        timer1_disable();
+    });
+    ArduinoOTA.onError([](ota_error_t error) {
+        timer1_enable(TIM_DIV16, TIM_EDGE, TIM_SINGLE);
+    });
+    ArduinoOTA.onEnd([]() {
+        timer1_enable(TIM_DIV16, TIM_EDGE, TIM_SINGLE);
+    });
+}
+
+void completeSetupWifiIsConnected(){
+    if (isSetupComplete == true || isWifiConnected() == true){
+        return;
+    }
+    dump("Resume SetUp");
+
+//    Blynk.begin(blynkAuthKey, wifiSsid, wifiPass, blynkHost, blynkPort);
+    connectBlynk();
+
+
+}
+
 
 /**
  * @return void
  */
 void setup() {
-    if (isDebug == true){
+    if (isDebug == true) {
         Serial.begin(115200);
     }
 
@@ -210,9 +279,10 @@ void setup() {
     pinMode(LED_PIN, OUTPUT);
     pinMode(BUTTON_PIN, INPUT);
 
-    Blynk.begin(blynkAuthKey, wifiSsid, wifiPass, blynkHost, blynkPort);
+    connectWifi();
+    Blynk.config(blynkAuthKey, blynkHost, blynkPort);
 
-    if (isOta && isWifiConnected()) {
+    if (isOta) {
         ArduinoOTA.setHostname(otaHost);
         ArduinoOTA.setPassword(otaPass);
         ArduinoOTA.begin();
@@ -227,36 +297,42 @@ void setup() {
  * @return void
  */
 void loop() {
-    if (isWifiConnected()) {
-        dump("Wifi is connected");
-        turnLedOff();
-        ArduinoOTA.handle();
-        ArduinoOTA.onStart([]() {
-            timer1_disable();
-        });
-        ArduinoOTA.onError([](ota_error_t error) {
-            timer1_enable(TIM_DIV16, TIM_EDGE, TIM_SINGLE);
-        });
-        ArduinoOTA.onEnd([]() {
-            timer1_enable(TIM_DIV16, TIM_EDGE, TIM_SINGLE);
-        });
+    bool offlineMode = isOfflineModeForced();
+    bool isWifiConnectedVar = isWifiConnected();
 
-        if (isBlynkConnected()) {
-            dump("Blynk is connected");
-            Blynk.syncAll();
-            Blynk.run();
-            syncBlynk();
-        } else {
-            dump("Blynk is disconnected");
-            connectBlynk();
+    if (isSetupComplete == false && isWifiConnectedVar == true){
+        completeSetupWifiIsConnected();
+    }
+
+    if (isWifiConnectedVar || offlineMode == true) {
+        if (isWifiConnectedVar) {
+            dump("Wifi is connected");
+
+            handleOtaStuff();
+
+            if (isBlynkConnected()) {
+                dump("Blynk is connected");
+                Blynk.syncAll();
+                Blynk.run();
+                syncBlynk();
+            } else {
+                dump("Blynk is disconnected");
+                connectBlynk();
+            }
         }
+        if (offlineMode) {
+            dump("Wifi is no connected => OFFLINE MODE");
+            connectWifi();
+        }
+        turnLedOff();
+
 
         dump("Button short: ", false);
         dump(isTimerShortButtonPressed);
         dump("Button long: ", false);
         dump(isTimerLongButtonPressed);
         if (isTimerLongButtonPressed == 1 && isTimerShortButtonPressed == 0) {
-            triggerRelay(timerLongValue);
+            (timerLongValue);
         }
 
         if (isTimerLongButtonPressed == 0 && isTimerShortButtonPressed == 1) {
