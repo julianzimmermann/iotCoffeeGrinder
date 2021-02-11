@@ -43,10 +43,16 @@ unsigned long machineStartTime = 0;
 unsigned long relayTriggeredTime = 0;
 bool isRelayTriggered = false;
 
-//Wifi Vars
+//Wifi Connect Vars
 bool isInWifiConnectingMode = false;
 int wifiConnectingCount = 0;
 unsigned long wifiStartedConnectingTime = 0;
+
+//Blynk Connect Vars
+int blynkConnectStartCount = 0;
+unsigned long blynkConnectStartTime = 0;
+bool blynkIsInConnectingMode = false;
+bool blynkIsInOfflineMode = false;
 
 bool isSetupComplete = false;
 
@@ -192,7 +198,6 @@ bool isOfflineModeForced() {
  * @return void
  */
 void connectWifi() {
-    dump("TEST");
     if (isWifiConnected() == true) {
         resetWifiConnectingStats();
         return;
@@ -219,26 +224,35 @@ void connectWifi() {
     }
 }
 
+void resetBlynkConnectingStats() {
+    blynkConnectStartCount = 0;
+    blynkConnectStartTime = 0;
+    blynkIsInConnectingMode = false;
+}
+
 /**
  * @return void
  */
 void connectBlynk() {
-    while (isBlynkConnected() == false) {
-        dump("Blynk offline");
-        turnLedOff();
-        Blynk.connect(3000);
-        int count = 1;
-        while (isBlynkConnected() == false) {
-            dump("Waiting for reconnect to blynk", false);
-            dump(count);
-            delay(300);
-            toggleLed();
-            if (count == 15) {
-                return;
-            }
-            count++;
+    if (isBlynkConnected() == true || blynkIsInOfflineMode == true || blynkConnectStartCount == 3) {
+        resetBlynkConnectingStats();
+        if (blynkConnectStartCount == 3){
+            blynkIsInOfflineMode = true;
         }
-    };
+        return;
+    }
+
+    toggleLed();
+    if (blynkIsInConnectingMode == false){
+        blynkConnectStartTime = millis();
+        blynkIsInConnectingMode = true;
+    }
+    blynkConnectStartCount++;
+    dump("Blynk offline");
+    dump("Connecting ", false);
+    dump(blynkConnectStartCount);
+    Blynk.connect(3000);
+    toggleLed();
 }
 
 void handleOtaStuff() {
@@ -254,8 +268,8 @@ void handleOtaStuff() {
     });
 }
 
-void completeSetupWifiIsConnected(){
-    if (isSetupComplete == true || isWifiConnected() == true){
+void completeSetupWifiIsConnected() {
+    if (isSetupComplete == true || isWifiConnected() == true) {
         return;
     }
     dump("Resume SetUp");
@@ -263,7 +277,7 @@ void completeSetupWifiIsConnected(){
 //    Blynk.begin(blynkAuthKey, wifiSsid, wifiPass, blynkHost, blynkPort);
     connectBlynk();
 
-
+    isSetupComplete = true;
 }
 
 
@@ -300,7 +314,7 @@ void loop() {
     bool offlineMode = isOfflineModeForced();
     bool isWifiConnectedVar = isWifiConnected();
 
-    if (isSetupComplete == false && isWifiConnectedVar == true){
+    if (isSetupComplete == false && isWifiConnectedVar == true) {
         completeSetupWifiIsConnected();
     }
 
