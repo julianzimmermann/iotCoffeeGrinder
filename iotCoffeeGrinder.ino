@@ -138,9 +138,6 @@ void turnLedOff() {
 void syncBlynk() {
     if (millis() - blynkLastSyncedTime >= blynkFetchTime){
         dump("Syncing Blynk.....", false);
-        Blynk.syncAll();
-//    Blynk.syncVirtual(timerShortButtonPin);
-//    Blynk.syncVirtual(timerLongButtonPin);
         Blynk.run();
         blynkLastSyncedTime = millis();
         dump("done");
