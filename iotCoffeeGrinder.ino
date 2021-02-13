@@ -1,7 +1,6 @@
 #include <ArduinoOTA.h>
 #include "config.h"
 #include "PinConfiguration.h"
-#include <ESP8266WiFi.h>
 #include <BlynkSimpleEsp8266.h>
 
 bool isDebug = IS_DEBUG;
@@ -49,10 +48,12 @@ int wifiConnectingCount = 0;
 unsigned long wifiStartedConnectingTime = 0;
 
 //Blynk Connect Vars
+int blynkFetchTime = 1200;
 int blynkConnectStartCount = 0;
 unsigned long blynkConnectStartTime = 0;
 bool blynkIsInConnectingMode = false;
 bool blynkIsInOfflineMode = false;
+unsigned long blynkLastSyncedTime = 0;
 
 bool isSetupComplete = false;
 
@@ -135,8 +136,15 @@ void turnLedOff() {
  * @return void
  */
 void syncBlynk() {
-    Blynk.syncVirtual(timerShortButtonPin);
-    Blynk.syncVirtual(timerLongButtonPin);
+    if (millis() - blynkLastSyncedTime >= blynkFetchTime){
+        dump("Syncing Blynk.....", false);
+        Blynk.syncAll();
+//    Blynk.syncVirtual(timerShortButtonPin);
+//    Blynk.syncVirtual(timerLongButtonPin);
+        Blynk.run();
+        blynkLastSyncedTime = millis();
+        dump("done");
+    }
 }
 
 /**
@@ -326,9 +334,10 @@ void loop() {
 
             if (isBlynkConnected()) {
                 dump("Blynk is connected");
-                Blynk.syncAll();
-                Blynk.run();
+
+
                 syncBlynk();
+//                Blynk.run();
             } else {
                 dump("Blynk is disconnected");
                 connectBlynk();
@@ -346,7 +355,7 @@ void loop() {
         dump("Button long: ", false);
         dump(isTimerLongButtonPressed);
         if (isTimerLongButtonPressed == 1 && isTimerShortButtonPressed == 0) {
-            (timerLongValue);
+            triggerRelay(timerLongValue);
         }
 
         if (isTimerLongButtonPressed == 0 && isTimerShortButtonPressed == 1) {
@@ -356,5 +365,9 @@ void loop() {
     } else {
         dump("Wifi is not connected");
         connectWifi();
+    }
+
+    if (isBlynkConnected()) {
+        Blynk.virtualWrite(V10, millis() / 1000);
     }
 }
